@@ -1,0 +1,186 @@
+version: '3.8'
+
+services:
+  # =================================================================
+  # Databases (Database per Service)
+  # =================================================================
+  auth-db:
+    image: postgres:16
+    container_name: auth-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: authpass
+      POSTGRES_DB: auth_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - auth-db-data:/var/lib/postgresql/data
+      - ./auth-service/migrations:/docker-entrypoint-initdb.d
+
+  facility-db:
+    image: postgres:16-alpine
+    container_name: facility-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: facility_db
+      TZ: Asia/Bangkok
+    ports:
+      - "5433:5432"
+    volumes:
+      - facility-db-data:/var/lib/postgresql/data
+
+  booking-db:
+    image: postgres:15-alpine
+    container_name: booking-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: bookingpass
+      POSTGRES_DB: booking_db
+    ports:
+      - "5434:5432"
+    volumes:
+      - booking-db-data:/var/lib/postgresql/data
+
+  notification-db:
+    image: postgres:16-alpine
+    container_name: notification-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: notification_db
+    ports:
+      - "5435:5432"
+    volumes:
+      - notification_db_data:/var/lib/postgresql/data
+      - ./notification-service/migrations:/docker-entrypoint-initdb.d
+
+  # =================================================================
+  # Microservices
+  # =================================================================
+  # 1. Auth & User Service
+  auth-service:
+    build: ./auth-service
+    container_name: auth-service
+    environment:
+      DATABASE_URL: postgres://postgres:authpass@auth-db:5432/auth_db
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: unibook
+      KEYCLOAK_ISSUER: http://localhost:8080/realms/unibook
+      KEYCLOAK_CLIENT_ID: auth-service
+      KEYCLOAK_CLIENT_SECRET: auth-service-dev-secret
+    depends_on:
+      - auth-db
+      - keycloak
+    ports:
+      - "8081:8081"
+
+  # 2. Facility Service (นายประพุทธ์ คำคาวี)
+  facility-service:
+    build:
+      context: ./facility-service
+    container_name: facility-service
+    environment:
+      PORT: "8082"
+      DATABASE_URL: host=facility-db user=postgres password=postgres dbname=facility_db port=5432 sslmode=disable TimeZone=Asia/Bangkok
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: unibook
+    ports:
+      - "8082:8082"
+    depends_on:
+      - facility-db
+      - keycloak
+
+  # 3. Booking Service (นายภาสกร พิจารณ์)
+  booking-service:
+    build:
+      context: ./booking-service
+      dockerfile: Dockerfile
+    container_name: booking-service
+    restart: on-failure
+    environment:
+      - PORT=8083
+      - DB_HOST=booking-db
+      - DB_USER=postgres
+      - DB_PASSWORD=bookingpass
+      - DB_NAME=booking_db
+      - DB_PORT=5432
+      - FACILITY_SERVICE_URL=http://facility-service:8082/api
+      - AUTH_SERVICE_URL=http://auth-service:8081
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8084
+      - INTERNAL_API_KEY=dev-internal-key
+      - KEYCLOAK_URL=http://keycloak:8080
+      - KEYCLOAK_REALM=unibook
+      - KEYCLOAK_ISSUER=http://localhost:8080/realms/unibook
+    ports:
+      - "8083:8083"
+    depends_on:
+      - booking-db
+      - facility-service
+      - auth-service
+      - notification-service
+      - keycloak
+
+  # 4. Notification Service
+  notification-service:
+    build:
+      context: ./notification-service
+      dockerfile: Dockerfile
+    container_name: notification-service
+    restart: on-failure
+    environment:
+      - PORT=8084
+      - DATABASE_URL=postgres://postgres:password@notification-db:5432/notification_db?sslmode=disable
+      - AUTH_SERVICE_URL=http://auth-service:8081
+      - KEYCLOAK_URL=http://keycloak:8080
+      - KEYCLOAK_REALM=unibook
+      - KEYCLOAK_ISSUER=http://localhost:8080/realms/unibook
+      - INTERNAL_API_KEY=dev-internal-key
+    ports:
+      - "8084:8084"
+    depends_on:
+      - notification-db
+      - auth-service
+      - keycloak
+
+  # =================================================================
+  # Central Infra (Keycloak & Kong Gateway)
+  # =================================================================
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: keycloak
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    ports:
+      - "8080:8080"
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+      - ./keycloak:/opt/keycloak/data/import
+
+  kong:
+    image: kong:3.7
+    container_name: kong
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong/kong.yml
+      KONG_PROXY_LISTEN: "0.0.0.0:8000"
+      KONG_ADMIN_LISTEN: "0.0.0.0:8001"
+    volumes:
+      - ./kong/kong.yml:/kong/kong.yml
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+    depends_on:
+      - auth-service
+      - facility-service
+      - booking-service
+      - notification-service
+
+volumes:
+  auth-db-data:
+  facility-db-data:
+  booking-db-data:
+  notification_db_data:
+  keycloak-data:

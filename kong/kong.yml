@@ -1,0 +1,43 @@
+_format_version: "3.0"
+
+services:
+  # ---------- คนที่ 1: Auth & User Service ----------
+  - name: auth-service
+    url: http://auth-service:8081
+    routes:
+      - name: auth-service-routes
+        paths:
+          - /api/auth
+          - /api/users
+          - /api/reports/users
+        strip_path: false
+
+  # ---------- คนที่ 2: Facility Service (นายประพุทธ์ คำคาวี) ----------
+  - name: facility-service
+    url: http://facility-service:8082
+    routes:
+      - name: facility-routes
+        paths:
+          - /api/facilities
+          - /api/reports/facilities
+        strip_path: false
+
+  # ---------- คนที่ 3: Booking Service (นายภาสกร พิจารณ์) ----------
+  - name: booking-service
+    url: http://booking-service:8083
+    routes:
+      - name: booking-routes
+        paths:
+          - /api/bookings
+          - /api/reports/bookings
+        strip_path: false
+
+  # ---------- คนที่ 4: Notification Service ----------
+  - name: notification-service
+    url: http://notification-service:8084
+    routes:
+      - name: notification-routes
+        paths:
+          - /api/notifications
+          - /api/reports/notifications
+        strip_path: false
